@@ -83,6 +83,25 @@ describe("trusted workflow acceptance criteria", () => {
     expect(dispatchWorkflow).toBeGreaterThan(verifyStatus);
   });
 
+  it("keeps pull-request bundle verification read-only and allows ncc-only drift", () => {
+    const ci = workflow("ci.yml");
+    expect(ci).toContain("contents: read");
+    expect(ci).not.toContain("contents: write");
+    expect(ci).toContain("fetch-depth: 0");
+    expect(ci).toContain(
+      "BUNDLE_CHECK_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}",
+    );
+    expect(ci).toContain("node scripts/verify-committed-bundle.ts");
+    expect(ci).not.toContain("git diff --exit-code -- dist/index.js");
+    expect(script("verify-committed-bundle.ts")).toContain("nccOnlyBundleDriftAllowed");
+    expect(script("verify-committed-bundle.ts")).toContain(
+      "pnpm release:check still requires a rebuilt bundle",
+    );
+    expect(readBoundedFile(path.join(root, "package.json"), 16 * 1024)).toContain(
+      '"quality": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm bundle:check"',
+    );
+  });
+
   it("never introduces pull_request_target", () => {
     for (const name of readdirSync(workflowDirectory).filter((file) => file.endsWith(".yml"))) {
       expect(workflow(name)).not.toContain("pull_request_target");

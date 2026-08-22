@@ -15,6 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
@@ -33,4 +34,6 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       - name: Verify committed bundle
-        run: git diff --exit-code -- dist/index.js dist/index.js.map dist/package.json dist/sourcemap-register.cjs
+        env:
+          BUNDLE_CHECK_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/verify-committed-bundle.ts

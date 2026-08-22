@@ -76,7 +76,9 @@ verifies the reviewer, attestation, merged pull request, and smoke evidence, and
 through the protected `release` environment.
 
 The ordinary `quality` jobs on pull requests and pushes to `main` remain required repository health
-controls. Release authorization does not query those asynchronous check results because the exact
+controls. Those jobs allow `dist/` drift when the only bundle-input change is `@vercel/ncc`;
+`pnpm quality` and `release:check` still require the committed bundle to match before a release.
+Release authorization does not query those asynchronous check results because the exact
 release SHA is tested again inside the release workflow. Direct workflow dispatches, releases from
 forks, and releases from unmerged or directly pushed commits are unsupported and rejected.
 
