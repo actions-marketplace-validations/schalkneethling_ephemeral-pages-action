@@ -91,7 +91,7 @@ pnpm install --frozen-lockfile
 pnpm quality
 ```
 
-`pnpm build` creates the checked-in `dist/index.js` bundle. `pnpm bundle:check` rebuilds and fails when the committed bundle differs. CI runs linting, formatting, type checking, unit tests, coverage, Node 24 bundle execution, and bundle verification.
+`pnpm build` creates the checked-in `dist/index.js` bundle. `pnpm bundle:check` rebuilds and fails when the committed bundle differs. CI runs linting, formatting, type checking, unit tests, coverage, and Node 24 bundle execution. Pull-request bundle verification allows `dist/` drift for `@vercel/ncc`-only upgrades; `pnpm release:check` still requires a current bundle before a release.
 
 The trusted release process is documented in [docs/releasing.md](docs/releasing.md). Maintainers use
 `pnpm release:check` and `pnpm release`; only the protected GitHub Actions release job can publish
