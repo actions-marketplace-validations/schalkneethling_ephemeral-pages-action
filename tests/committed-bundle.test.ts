@@ -1,38 +1,38 @@
-import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   nccOnlyBundleDriftAllowed,
   parsePnpmImporterVersions,
+  parsePnpmRootImporters,
   type BundleDriftInput,
+  type ImporterVersions,
   type PackageManifest,
 } from "../scripts/lib/committed-bundle.js";
+import { readBoundedFile, readBoundedJson } from "../scripts/lib/io.js";
 
-const lockfile = readFileSync(new URL("../pnpm-lock.yaml", import.meta.url), "utf8");
+const fixtureDirectory = path.resolve("tests/fixtures/bundle");
 
-const basePackage: PackageManifest = {
-  dependencies: { "@actions/core": "^3.0.0", "@actions/github": "^9.0.0" },
-  devDependencies: { "@vercel/ncc": "^0.44.1", oxlint: "^1.77.0", typescript: "^5.9.3" },
-};
+function fixturePackage(name: string): PackageManifest {
+  return readBoundedJson<PackageManifest>(path.join(fixtureDirectory, name));
+}
 
-const nccOnlyPackage: PackageManifest = {
-  dependencies: { "@actions/core": "^3.0.0", "@actions/github": "^9.0.0" },
-  devDependencies: { "@vercel/ncc": "^0.45.0", oxlint: "^1.77.0", typescript: "^5.9.3" },
-};
+function fixtureImporters(name: string): ImporterVersions {
+  return readBoundedJson<ImporterVersions>(path.join(fixtureDirectory, name));
+}
 
-const productionVersions = {
-  "@actions/core": "3.0.1",
-  "@actions/github": "9.1.1",
-};
+const lockfile = readBoundedFile(path.resolve("pnpm-lock.yaml"));
+const basePackage = fixturePackage("package-base.json");
+const nccOnlyPackage = fixturePackage("package-ncc-only.json");
+const baseImporters = fixtureImporters("importers-base.json");
+const nccOnlyImporters = fixtureImporters("importers-ncc-only.json");
 
 function input(overrides: Partial<BundleDriftInput> = {}): BundleDriftInput {
   return {
     changedFiles: ["package.json", "pnpm-lock.yaml"],
     basePackage,
     headPackage: nccOnlyPackage,
-    baseProductionVersions: productionVersions,
-    headProductionVersions: productionVersions,
-    baseNccVersion: "0.44.1",
-    headNccVersion: "0.45.0",
+    baseImporterVersions: baseImporters,
+    headImporterVersions: nccOnlyImporters,
     ...overrides,
   };
 }
@@ -76,11 +76,21 @@ describe("committed bundle acceptance criteria", () => {
     ).toBe(false);
   });
 
-  it("rejects dist drift when a lockfile production version changed", () => {
+  it("rejects dist drift when the build script changed", () => {
     expect(
       nccOnlyBundleDriftAllowed(
         input({
-          headProductionVersions: { ...productionVersions, "@actions/core": "3.1.0" },
+          headPackage: fixturePackage("package-build-script.json"),
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects dist drift when a lockfile-only non-ncc development version changed", () => {
+    expect(
+      nccOnlyBundleDriftAllowed(
+        input({
+          headImporterVersions: fixtureImporters("importers-dev-lockfile-only.json"),
         }),
       ),
     ).toBe(false);
@@ -91,8 +101,7 @@ describe("committed bundle acceptance criteria", () => {
       nccOnlyBundleDriftAllowed(
         input({
           headPackage: basePackage,
-          baseNccVersion: "0.44.1",
-          headNccVersion: "0.44.1",
+          headImporterVersions: baseImporters,
         }),
       ),
     ).toBe(false);
@@ -113,11 +122,16 @@ describe("committed bundle acceptance criteria", () => {
 });
 
 describe("pnpm lockfile importer versions", () => {
-  it("reads production and ncc versions from the committed lockfile", () => {
-    expect(parsePnpmImporterVersions(lockfile, "dependencies")).toEqual({
+  it("reads production and development importer versions from the committed lockfile", () => {
+    const importers = parsePnpmRootImporters(lockfile);
+    expect(importers.dependencies).toEqual({
       "@actions/core": "3.0.1",
       "@actions/github": "9.1.1",
     });
-    expect(parsePnpmImporterVersions(lockfile, "devDependencies")["@vercel/ncc"]).toBe("0.44.1");
+    expect(importers.devDependencies["@vercel/ncc"]).toBe("0.44.1");
+    expect(importers.devDependencies.typescript).toBe("5.9.3");
+    expect(parsePnpmImporterVersions(lockfile, "devDependencies")).toEqual(
+      importers.devDependencies,
+    );
   });
 });

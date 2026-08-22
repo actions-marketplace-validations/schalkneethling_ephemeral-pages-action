@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 export const BUNDLE_FILES = [
   "dist/index.js",
   "dist/index.js.map",
@@ -12,16 +14,21 @@ export const NCC_PACKAGE = "@vercel/ncc";
 export interface PackageManifest {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
+  scripts?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+export interface ImporterVersions {
+  dependencies: Record<string, string>;
+  devDependencies: Record<string, string>;
 }
 
 export interface BundleDriftInput {
   changedFiles: string[];
   basePackage: PackageManifest;
   headPackage: PackageManifest;
-  baseProductionVersions: Record<string, string>;
-  headProductionVersions: Record<string, string>;
-  baseNccVersion: string | undefined;
-  headNccVersion: string | undefined;
+  baseImporterVersions: ImporterVersions;
+  headImporterVersions: ImporterVersions;
 }
 
 export function parsePnpmImporterVersions(
@@ -73,6 +80,13 @@ export function parsePnpmImporterVersions(
   return versions;
 }
 
+export function parsePnpmRootImporters(lockfile: string): ImporterVersions {
+  return {
+    dependencies: parsePnpmImporterVersions(lockfile, "dependencies"),
+    devDependencies: parsePnpmImporterVersions(lockfile, "devDependencies"),
+  };
+}
+
 export function changesBundleSource(changedFiles: string[]): boolean {
   return changedFiles.some((file) =>
     BUNDLE_SOURCE_PATHS.some((prefix) =>
@@ -81,33 +95,54 @@ export function changesBundleSource(changedFiles: string[]): boolean {
   );
 }
 
-function sameRecord(
-  left: Record<string, string> = {},
-  right: Record<string, string> = {},
-): boolean {
-  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
-  for (const key of keys) {
-    if (left[key] !== right[key]) return false;
-  }
-  return true;
-}
-
-function otherDevDependencies(manifest: PackageManifest): Record<string, string> {
+function withoutNcc(versions: Record<string, string> = {}): Record<string, string> {
   const rest: Record<string, string> = {};
-  for (const [name, version] of Object.entries(manifest.devDependencies ?? {})) {
+  for (const [name, version] of Object.entries(versions)) {
     if (name !== NCC_PACKAGE) rest[name] = version;
   }
   return rest;
 }
 
+function withoutNccDeclaration(manifest: PackageManifest): PackageManifest {
+  const copy = structuredClone(manifest);
+  if (copy.devDependencies) copy.devDependencies = withoutNcc(copy.devDependencies);
+  return copy;
+}
+
+function nccChanged(input: BundleDriftInput): boolean {
+  return (
+    input.basePackage.devDependencies?.[NCC_PACKAGE] !==
+      input.headPackage.devDependencies?.[NCC_PACKAGE] ||
+    input.baseImporterVersions.devDependencies[NCC_PACKAGE] !==
+      input.headImporterVersions.devDependencies[NCC_PACKAGE]
+  );
+}
+
 export function nccOnlyBundleDriftAllowed(input: BundleDriftInput): boolean {
   if (changesBundleSource(input.changedFiles)) return false;
-  if (!sameRecord(input.basePackage.dependencies, input.headPackage.dependencies)) return false;
   if (
-    !sameRecord(otherDevDependencies(input.basePackage), otherDevDependencies(input.headPackage))
+    !isDeepStrictEqual(
+      withoutNccDeclaration(input.basePackage),
+      withoutNccDeclaration(input.headPackage),
+    )
   ) {
     return false;
   }
-  if (!sameRecord(input.baseProductionVersions, input.headProductionVersions)) return false;
-  return input.baseNccVersion !== input.headNccVersion;
+  if (
+    !isDeepStrictEqual(
+      input.baseImporterVersions.dependencies,
+      input.headImporterVersions.dependencies,
+    )
+  ) {
+    return false;
+  }
+  if (
+    !isDeepStrictEqual(
+      withoutNcc(input.baseImporterVersions.devDependencies),
+      withoutNcc(input.headImporterVersions.devDependencies),
+    )
+  ) {
+    return false;
+  }
+  return nccChanged(input);
 }

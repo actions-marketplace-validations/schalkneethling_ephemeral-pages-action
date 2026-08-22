@@ -3,9 +3,8 @@
 import { fileURLToPath } from "node:url";
 import {
   BUNDLE_FILES,
-  NCC_PACKAGE,
   nccOnlyBundleDriftAllowed,
-  parsePnpmImporterVersions,
+  parsePnpmRootImporters,
   type PackageManifest,
 } from "./lib/committed-bundle.ts";
 import { run } from "./lib/io.ts";
@@ -20,13 +19,6 @@ function readManifest(ref: string): PackageManifest {
   return JSON.parse(gitShow(ref, "package.json")) as PackageManifest;
 }
 
-function nccVersion(manifest: PackageManifest, lockfile: string): string | undefined {
-  return (
-    parsePnpmImporterVersions(lockfile, "devDependencies")[NCC_PACKAGE] ??
-    manifest.devDependencies?.[NCC_PACKAGE]
-  );
-}
-
 const diff = run("git", ["diff", "--", ...BUNDLE_FILES], { cwd: root, quiet: true });
 if (!diff) {
   console.log("Committed bundle matches the rebuilt output.");
@@ -38,8 +30,6 @@ if (!base || /^0+$/.test(base)) {
   throw new Error("Committed bundle differs from the rebuilt output.");
 }
 
-const baseLockfile = gitShow(base, "pnpm-lock.yaml");
-const headLockfile = gitShow("HEAD", "pnpm-lock.yaml");
 const basePackage = readManifest(base);
 const headPackage = readManifest("HEAD");
 const changedFiles = run("git", ["diff", "--name-only", base, "HEAD"], {
@@ -54,10 +44,8 @@ if (
     changedFiles,
     basePackage,
     headPackage,
-    baseProductionVersions: parsePnpmImporterVersions(baseLockfile, "dependencies"),
-    headProductionVersions: parsePnpmImporterVersions(headLockfile, "dependencies"),
-    baseNccVersion: nccVersion(basePackage, baseLockfile),
-    headNccVersion: nccVersion(headPackage, headLockfile),
+    baseImporterVersions: parsePnpmRootImporters(gitShow(base, "pnpm-lock.yaml")),
+    headImporterVersions: parsePnpmRootImporters(gitShow("HEAD", "pnpm-lock.yaml")),
   })
 ) {
   console.log(
